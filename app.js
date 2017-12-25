@@ -1,7 +1,7 @@
 var express = require('express');
 var app = express();
 var serv = require('http').Server(app);
-
+var DEBUG = true;
 app.get('/', function(req, res){
   res.sendFile(__dirname + '/client/index.html');
 });
@@ -69,7 +69,7 @@ var Player = function(id){
 Player.list = {};
 Player.onConnect = function(socket){
   var player = Player(socket.id);
-  console.log("Player id: " + socket.id)
+  console.log("Player id: " + ("" + socket.id).slice(2,7));
   socket.on('keyPress', function(data){
     if (data.inputId === 'left')
       player.pressingLeft = data.state;
@@ -133,7 +133,7 @@ Bullet.update = function(){
       y:bullet.y,
     });
   }
-  console.log(pack);
+  // console.log(pack);
   return pack;
 }
 
@@ -143,10 +143,27 @@ io.sockets.on('connection', function(socket){
   SOCKET_LIST[socket.id] = socket;
 
   Player.onConnect(socket);
+
   socket.on('disconnect', function(){
     delete SOCKET_LIST[socket.id];
     Player.onDisconnect(socket);
   });
+
+  socket.on('sendMsgToServer', function(data){
+    var playername = ("" + socket.id).slice(2,7);
+    for (i in  SOCKET_LIST){
+      SOCKET_LIST[i].emit('addToChat', playername + ": " + data);
+    }
+  });
+
+  socket.on('evalServer', function(data){
+    if (!DEBUG) {
+      return;
+    }
+    var res = eval(data);
+    socket.emit('evalAnswer', res);
+  });
+
 });
 
 setInterval(function(){
