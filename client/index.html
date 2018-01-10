@@ -1,34 +1,136 @@
-<h1>Hello, world!</h1>
-
-<canvas id="ctx" width="500" height="500" style="border:1px solid #000000;"></canvas>
-
-<div id="chat-text" style="width:500px; height:100px; overflow-y:scroll">
-	<div>Hello!</div>
+<div id=signDiv>
+	Username: <input id="signDiv-username" type="text"></input><br>
+	Password: <input id="signDiv-password" type="password"></input>
+	<button id="signDiv-signIn">Sign In</button>
+	<button id="signDiv-signUp">Sign Up</button>
 </div>
+<div id="gameDiv" style="display:none;">
+	<canvas id="ctx" width="500" height="500" style="border:1px solid #000000;"></canvas>
 
-<form id="chat-form">
-	<input id="chat-input" type="text" style="width:500px"></input>
-</form>
+	<div id="chat-text" style="width:500px; height:100px; overflow-y:scroll">
+		<div>Hello!</div>
+	</div>
+
+	<form id="chat-form">
+		<input id="chat-input" type="text" style="width:500px"></input>
+	</form>
+</div>
 
 <script src="https://cdn.socket.io/socket.io-1.4.5.js"></script>
 <script>
-	var chatText = document.getElementById("chat-text");
-	var chatInput = document.getElementById("chat-input");
-	var chatForm = document.getElementById("chat-form");
-	var ctx = document.getElementById("ctx").getContext("2d");
-	ctx.font = '30px Arial';
+
+	//sign
+	var signDiv = document.getElementById("signDiv");
+	var signDivUsername = document.getElementById("signDiv-username");
+	var signDivPassword = document.getElementById("signDiv-password");
+	var signDivSignIn = document.getElementById("signDiv-signIn");
+	var signDivSignUp = document.getElementById("signDiv-signUp");
+
+	signDivSignIn.onclick = function(){
+		socket.emit('signIn', {username: signDivUsername.value, password: signDivPassword.value});
+	}
+
+	signDivSignUp.onclick = function(){
+		socket.emit('signUp', {username: signDivUsername.value, password: signDivPassword.value});
+	}
 
 	var socket = io();
 
-	socket.on('newPositions', function(data){
-		// console.log(data);
-		ctx.clearRect(0,0,500,500);
-		for (var i = 0; i < data.player.length; i++)
-			ctx.fillText(data.player[i].number, data.player[i].x, data.player[i].y);
-
-		for (var i = 0; i < data.bullet.length; i++)
-			ctx.fillRect(data.bullet[i].x-5, data.bullet[i].y-5, 10, 10);
+	socket.on('signInResponse', function(data){
+		if(data.success){
+			signDiv.style.display = 'none';
+			gameDiv.style.display = 'inline-block';
+		} else {
+			alert("Sign in unsuccessful");
+		}
 	});
+
+	socket.on('signUpResponse', function(data){
+		if(data.success){
+			alert("Sign up successful");
+		} else {
+			alert("Sign up unsuccessful");
+		}
+	});
+
+	//chat
+	var chatText = document.getElementById("chat-text");
+	var chatInput = document.getElementById("chat-input");
+	var chatForm = document.getElementById("chat-form");
+
+	//game
+	var ctx = document.getElementById("ctx").getContext("2d");
+	ctx.font = '30px Arial';
+
+	var Player = function(initPack) {
+		var self = {};
+		self.id = initPack.id;
+		self.number = initPack.number;
+		self.x = initPack.x;
+		self.y = initPack.y;
+		Player.list[self.id] = self;
+		return self;
+	}
+	Player.list = {};
+
+	var Bullet = function(initPack) {
+		var self = {};
+		self.id = initPack.id;
+		self.x = initPack.x;
+		self.y = initPack.y;
+		Player.list[self.id] = self;
+		return self;
+	}
+	Bullet.list = {};
+
+	socket.on('init', function(data){
+		for (var i = 0; i < data.player.length; i++) {
+			new Player(data.player[i]);
+		}
+		for (var i = 0; i < data.bullet.length; i++) {
+			new Bullet(data.bullet[i]);
+		}
+	});
+
+	socket.on('update', function(data){
+		for (var i = 0; i < data.player.length; i++) {
+			var pack = data.player[i];
+			var p = Player.list[pack.id];
+			if(p){
+				if(pack.x !== undefined)
+					p.x = pack.x;
+				if(pack.y !== undefined)
+					p.y = pack.y;
+			}
+		for (var i = 0; i < data.bullet.length; i++) {
+			var pack = data.bullet[i];
+			var p = Bullet.list[data.bullet[i].id];
+			if(p){
+				if(pack.x !== undefined)
+					p.x = pack.x;
+				if(pack.y !== undefined)
+					p.y = pack.y;
+			}
+		}
+	}
+	});
+
+	socket.on('remove', function(data){
+		for (var i = 0; i < data.player.length; i++) {
+			delete Player.list[data.player[i]];
+		}
+		for (var i = 0; i < data.bullet.length; i++) {
+			delete Bullet.list[data.bullet[i]];
+		}
+	});
+
+	setInterval(function(){
+		ctx.clearRect(0,0,500,500);
+		for (var i in Player.list)
+			ctx.fillText(Player.list[i].number, Player.list[i].x, Player.list[i].y)
+		for (var i in Bullet.list)
+			ctx.fillRect(Bullet.list[i].x-5, Bullet.list[i].y-5, 10, 10);
+	}, 1000/25);
 
 	socket.on('addToChat', function(data){
 		chatText.innerHTML += '<div>' + data + '</div>';

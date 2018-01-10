@@ -1,3 +1,6 @@
+var mongojs = require('mongojs');
+var db = mongojs('localhost:27017/myGame', ['account','progress']);
+
 var express = require('express');
 var app = express();
 var serv = require('http').Server(app);
@@ -17,7 +20,7 @@ var Entity = function(){
     y: 250,
     spdX: 0,
     spdY: 0,
-    id: "",
+    id: ""
   }
 
   self.update = function(){
@@ -80,6 +83,12 @@ var Player = function(id){
       self.spdY = 0
   }
   Player.list[id] = self;
+  initPack.player.push({
+    id: self.id,
+    x: self.x,
+    y: self.y,
+    number: self.number
+  });
   return self;
 };
 
@@ -100,10 +109,11 @@ Player.onConnect = function(socket){
       player.pressingAttack = data.state;
     else if (data.inputId === 'mouseAngle')
       player.mouseAngle = data.state;
-  })
+  });
 }
 Player.onDisconnect = function(socket){
   delete Player.list[socket.id];
+  removePack.player.push(socket.id);
 }
 
 Player.update = function(){
@@ -112,9 +122,9 @@ Player.update = function(){
     var player = Player.list[i];
     player.update();
     pack.push({
+      id:player.id,
       x:player.x,
-      y:player.y,
-      number:player.number
+      y:player.y
     });
   }
   return pack;
@@ -142,6 +152,11 @@ var Bullet = function(parent, angle){
     }
   }
   Bullet.list[self.id] = self;
+  initPack.bullet.push({
+    id: self.id,
+    x: self.x,
+    y: self.y,
+  });
   return self;
 }
 
@@ -152,16 +167,48 @@ Bullet.update = function(){
   for (var i in Bullet.list){
     var bullet = Bullet.list[i];
     bullet.update();
-    if(bullet.toRemove)
+    if(bullet.toRemove){
       delete Bullet.list[i];
-    else
+      removePack.bullet.push(bullet.id);
+    } else {
       pack.push({
+        id:bullet.id,
         x:bullet.x,
-        y:bullet.y,
+        y:bullet.y
       });
+    }
   }
   // console.log(pack);
   return pack;
+}
+
+var USERS = {
+  "asd":"asd",
+  "qwe":"qwe"
+}
+
+var isValidPassword = function(data, cb){
+  db.account.find({username:data.username, password:data.password}, function(err, res){
+    if (res.length > 0)
+      cb(true);
+    else
+      cb(false)
+  });
+}
+
+var isUsernameTaken = function(data, cb){
+  db.account.find({username:data.username}, function(err, res){
+    if (res.length > 0)
+      cb(true);
+    else
+      cb(false);
+  });
+}
+
+var addUser = function(data, cb){
+  db.account.insert({username:data.username, password:data.password}, function(err){
+    cb();
+  });
 }
 
 var io = require('socket.io')(serv, {});
@@ -169,7 +216,28 @@ io.sockets.on('connection', function(socket){
   socket.id = Math.random();
   SOCKET_LIST[socket.id] = socket;
 
-  Player.onConnect(socket);
+  socket.on('signIn', function(data){
+    isValidPassword(data, function(res){
+      if (res){
+        Player.onConnect(socket);
+        socket.emit('signInResponse', {success:true});
+      } else {
+        socket.emit('signInResponse', {success:false});
+      }
+    })
+  });
+
+  socket.on('signUp', function(data){
+    isUsernameTaken(data, function(res){
+      if (res){
+        socket.emit('signUpResponse', {success:false});
+      } else {
+        addUser(data, function(){
+          socket.emit('signUpResponse', {success:true});
+        })
+      }
+    })
+  });
 
   socket.on('disconnect', function(){
     delete SOCKET_LIST[socket.id];
@@ -193,14 +261,23 @@ io.sockets.on('connection', function(socket){
 
 });
 
+var initPack = {player:[], bullet:[]};
+var removePack = {player:[], bullet:[]};
+
 setInterval(function(){
   var pack = {
     player: Player.update(),
-    bullet: Bullet.update(),
+    bullet: Bullet.update()
   }
 
   for (var i in SOCKET_LIST){
     var socket = SOCKET_LIST[i];
-    socket.emit('newPositions', pack);
+    socket.emit('init', initPack);
+    socket.emit('update', pack);
+    socket.emit('remove', removePack);
   }
+  initPack.player = [];
+  initPack.bullet = [];
+  removePack.player = [];
+  removePack.bullet = [];
 }, 1000/25);
